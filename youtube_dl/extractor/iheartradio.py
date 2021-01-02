@@ -64,7 +64,6 @@ class IHeartRadioPodcastIE(InfoExtractor):
 
         # Don't load embed pages
         url = url.replace('?embed=true', '')
-        webpage = self._download_webpage(url, current_id)
 
         # Register anonymous user, same behavior as web app
         random_device_id = compat_str(uuid.uuid4())
@@ -88,7 +87,7 @@ class IHeartRadioPodcastIE(InfoExtractor):
         session_id = temp_user['sessionId']
         profile_id = temp_user['profileId']
 
-        if (not is_single_episode):
+        if not is_single_episode:
             episode_ids = []
             for episode in self._get_all_episodes(podcast_id, temp_user):
                 episode_ids.append(episode['id'])
@@ -109,19 +108,15 @@ class IHeartRadioPodcastIE(InfoExtractor):
                      'X-Session-Id': session_id,
                      'X-User-Id': profile_id})
 
-        # self.to_screen(stream_info)
-
         # Extract info from webpage (entirely optional)
 
-        podcast_title = self._search_regex(
-            r'<h1[^>]*>(?P<title>[^<]*)<\/h1>',
-            webpage, 'title', fatal=False) or self._og_search_title(webpage)
+        webpage = self._download_webpage(url, current_id)
 
-        podcast_description = self._search_regex(
-            r'<div class="[^"]*Body2-Description[^"]*">(?:<\/?span[^>]*>)*(?P<description>[^<]*)',
-            webpage, 'description', fatal=False)
+        podcast_title = re.sub(r' \| iHeartRadio$', '',
+                self._og_search_title(webpage))
+        podcast_description = self._og_search_description(webpage)
 
-        if (is_single_episode):
+        if is_single_episode:
             return self._real_extract_single(stream_info['items'][0],
                                              episode_display_id, podcast_id,
                                              podcast_title)
@@ -162,7 +157,7 @@ class IHeartRadioPodcastIE(InfoExtractor):
 
         # Release date timestamp is in milliseconds
         release_date = content_info.get('startDate')
-        if (isinstance(release_date, Number) and release_date > 2000000000):
+        if isinstance(release_date, Number) and release_date > 2000000000:
             release_date /= 1000
 
         # Remove analytics from stream URL (optional)
