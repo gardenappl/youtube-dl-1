@@ -18,46 +18,10 @@ from ..utils import (
 )
 
 
-class IHeartRadioPodcastIE(InfoExtractor):
-    _VALID_URL = r'https?://(?:www\.)?iheart\.com/podcast/\d+-(?P<pod_title>[\w-]+)-(?P<pod_id>\d+)(?:/episode/(?P<title>[\w-]+)-(?P<id>\d+))?/?(?:embed=true)?'
-    IE_NAME = "iheartradio:podcast"
-    _TESTS = [{
-        'url': 'https://www.iheart.com/podcast/1119-it-could-happen-here-30717896/',
-        'info_dict': {
-            'title': 'It Could Happen Here',
-            'description': 'md5:5842117412a967eb0b01f8088eb663e2',
-            'id': '30717896',
-            'display_id': 'it-could-happen-here'
-        },
-        'playlist_count': 11
-    }, {
-        'url': 'https://www.iheart.com/podcast/105-behind-the-bastards-29236323/episode/part-one-alexander-lukashenko-the-dictator-70346499/?embed=true',
-        # IHeartRadio has ads, I can't tell if they're custom or not,
-        # so the MD5 hash might be inconsistent
-        'md5': 'c8609c92c8688dcb69d8541042b8abca',
-        'info_dict': {
-            'id': '70346499',
-            'ext': 'mp3',
-            'title': 'Part One: Alexander Lukashenko: The Dictator of Belarus',
-            'thumbnail': 'https://i.iheart.com/v3/catalog/podcast/29236323',
-            'description': 'md5:96cc7297b3a5a9ebae28643801c96fae',
-            'timestamp': 1597741200,
-            'upload_date': '20200818',
-            'duration': 4156,
-            'display_id': 'part-one-alexander-lukashenko-the-dictator'
-        }
-    }]
-
+class IHeartRadioPodcastBaseIE(InfoExtractor):
     # To get the audio files, we have to use their internal API
-    def _real_extract(self, url):
-        match = re.match(self._VALID_URL, url)
-
-        podcast_display_id = match.group('pod_title')
-        podcast_id = match.group('pod_id')
-
-        episode_display_id = match.group('title')
-        episode_id = match.group('id')
-
+    def _extract_episode_or_playlist(self, url, podcast_display_id, podcast_id,
+                                     episode_display_id=None, episode_id=None):
         current_id = str_or_none(episode_id, default=podcast_id)
 
         is_single_episode = episode_id is not None
@@ -112,9 +76,14 @@ class IHeartRadioPodcastIE(InfoExtractor):
 
         webpage = self._download_webpage(url, current_id)
 
-        podcast_title = re.sub(r' \| iHeartRadio$', '',
-                self._og_search_title(webpage))
-        podcast_description = self._og_search_description(webpage)
+        podcast_title = self._html_search_meta(
+            ['og:title', 'title', 'twitter:title'],
+            webpage, 'title', default=None)
+        podcast_title = re.sub(r' \| iHeartRadio$', '', podcast_title)
+
+        podcast_description = self._html_search_meta(
+            ['og:description', 'description', 'twitter:description'],
+            webpage, 'description', default=None)
 
         if is_single_episode:
             return self._real_extract_single(stream_info['items'][0],
@@ -188,3 +157,62 @@ class IHeartRadioPodcastIE(InfoExtractor):
                      'X-Ihr-Profile-Id': temp_user['profileId']})
 
         return episodes_info['data']
+
+
+class IHeartRadioPodcastIE(IHeartRadioPodcastBaseIE):
+    _VALID_URL = r'https?://(?:www\.)?iheart\.com/podcast/\d+-(?P<pod_title>[\w-]+)-(?P<pod_id>\d+)'
+    IE_NAME = "iheartradio:podcast"
+    _TEST = {
+        'url': 'https://www.iheart.com/podcast/1119-it-could-happen-here-30717896/',
+        'info_dict': {
+            'title': 'It Could Happen Here',
+            'description': 'md5:5842117412a967eb0b01f8088eb663e2',
+            'id': '30717896',
+            'display_id': 'it-could-happen-here'
+        },
+        'playlist_count': 11
+    }
+
+    def _real_extract(self, url):
+        match = re.match(self._VALID_URL, url)
+
+        podcast_display_id = match.group('pod_title')
+        podcast_id = match.group('pod_id')
+
+        return self._extract_episode_or_playlist(url, podcast_display_id,
+                                                 podcast_id)
+
+
+class IHeartRadioPodcastEpisodeIE(IHeartRadioPodcastBaseIE):
+    _VALID_URL = r'https?://(?:www\.)?iheart\.com/podcast/\d+-(?P<pod_title>[\w-]+)-(?P<pod_id>\d+)/episode/(?P<title>[\w-]+)-(?P<id>\d+)'
+    IE_NAME = "iheartradio:podcast_episode"
+    _TEST = {
+        'url': 'https://www.iheart.com/podcast/105-behind-the-bastards-29236323/episode/part-one-alexander-lukashenko-the-dictator-70346499/?embed=true',
+        # IHeartRadio has ads, I can't tell if they're custom or not,
+        # so the MD5 hash might be inconsistent
+        'md5': 'c8609c92c8688dcb69d8541042b8abca',
+        'info_dict': {
+            'id': '70346499',
+            'ext': 'mp3',
+            'title': 'Part One: Alexander Lukashenko: The Dictator of Belarus',
+            'thumbnail': 'https://i.iheart.com/v3/catalog/podcast/29236323',
+            'description': 'md5:96cc7297b3a5a9ebae28643801c96fae',
+            'timestamp': 1597741200,
+            'upload_date': '20200818',
+            'duration': 4156,
+            'display_id': 'part-one-alexander-lukashenko-the-dictator'
+        }
+    }
+
+    def _real_extract(self, url):
+        match = re.match(self._VALID_URL, url)
+
+        podcast_display_id = match.group('pod_title')
+        podcast_id = match.group('pod_id')
+
+        episode_display_id = match.group('title')
+        episode_id = match.group('id')
+
+        return self._extract_episode_or_playlist(url, podcast_display_id,
+                                                 podcast_id, episode_display_id,
+                                                 episode_id)

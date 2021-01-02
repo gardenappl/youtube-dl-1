@@ -456,7 +456,10 @@ from .ign import (
     OneUPIE,
     PCMagIE,
 )
-from .iheartradio import IHeartRadioPodcastIE
+from .iheartradio import (
+    IHeartRadioPodcastEpisodeIE,
+    IHeartRadioPodcastIE,
+)
 from .imdb import (
     ImdbIE,
     ImdbListIE
