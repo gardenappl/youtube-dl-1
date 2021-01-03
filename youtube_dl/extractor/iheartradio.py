@@ -13,11 +13,11 @@ from numbers import Number
 
 from ..utils import (
     clean_html,
+    int_or_none,
     urlencode_postdata
 )
 
 
-# To get the audio files, we have to use their internal API
 class IHeartRadioPodcastBaseIE(InfoExtractor):
     # Register anonymous user, same behavior as web app
     def _register_temp_user(self, current_id):
@@ -79,25 +79,14 @@ class IHeartRadioPodcastBaseIE(InfoExtractor):
                 'height': size
             })
 
-        # Release date timestamp is in milliseconds
-        release_date = content_info.get('startDate')
-        if isinstance(release_date, Number) and release_date > 2000000000:
-            release_date /= 1000
-
-        # Remove analytics from stream URL (optional)
-        streamUrl = item_info['streamUrl']
-        streamUrl = re.sub(r'(?:www\.)?podtrac\.com/pts/redirect\.[\w]*/', '', streamUrl)
-        streamUrl = re.sub(r'chtbl\.com/track/[\w]*/', '', streamUrl)
-        streamUrl = re.sub(r'\?source=[\w]*', '', streamUrl)
-
         return {
             'id': compat_str(content_info['id']),
             'display_id': display_id,
             'title': content_info['title'],
             'description': clean_html(content_info.get('description')),
-            'url': streamUrl,
+            'url': item_info['streamUrl'],
             'duration': content_info.get('duration'),
-            'timestamp': release_date,
+            'timestamp': int_or_none(content_info.get('startDate'), scale=1000),
             'thumbnails': thumbnails,
             'series': podcast_title
         }
