@@ -13,23 +13,14 @@ from numbers import Number
 
 from ..utils import (
     clean_html,
-    str_or_none,
     urlencode_postdata
 )
 
 
+# To get the audio files, we have to use their internal API
 class IHeartRadioPodcastBaseIE(InfoExtractor):
-    # To get the audio files, we have to use their internal API
-    def _extract_episode_or_playlist(self, url, podcast_display_id, podcast_id,
-                                     episode_display_id=None, episode_id=None):
-        current_id = str_or_none(episode_id, default=podcast_id)
-
-        is_single_episode = episode_id is not None
-
-        # Don't load embed pages
-        url = url.replace('?embed=true', '')
-
-        # Register anonymous user, same behavior as web app
+    # Register anonymous user, same behavior as web app
+    def _register_temp_user(self, current_id):
         random_device_id = compat_str(uuid.uuid4())
         random_oauth_id = compat_str(uuid.uuid4())
 
@@ -42,22 +33,13 @@ class IHeartRadioPodcastBaseIE(InfoExtractor):
             'oauthUuid': random_oauth_id,
             'userName': 'anon' + random_oauth_id
         })
-        temp_user = self._download_json(
+        return self._download_json(
             'https://ww.api.iheart.com/api/v1/account/loginOrCreateOauthUser',
             current_id, "Registering temporary user", data=register_user_values,
             headers={'Accept': 'application/json, text/plain, */*',
                      'X-hostName': 'webapp.WW'})
 
-        session_id = temp_user['sessionId']
-        profile_id = temp_user['profileId']
-
-        if not is_single_episode:
-            episode_ids = []
-            for episode in self._get_all_episodes(podcast_id, temp_user):
-                episode_ids.append(episode['id'])
-        else:
-            episode_ids = [episode_id]
-
+    def _get_streams_info(self, podcast_id, episode_ids, temp_user, current_id):
         streams_values = json.dumps({
             'contentIds': episode_ids,
             'hostName': 'webapp.WW',
@@ -65,47 +47,20 @@ class IHeartRadioPodcastBaseIE(InfoExtractor):
             'stationId': compat_str(podcast_id),
             'stationType': 'PODCAST'
         }).encode('utf-8')
-        stream_info = self._download_json(
+        return self._download_json(
             'https://ww.api.iheart.com/api/v2/playback/streams',
             current_id, "Requesting stream info", data=streams_values,
             headers={'Content-Type': 'application/json;charset=utf-8',
-                     'X-Session-Id': session_id,
-                     'X-User-Id': profile_id})
+                     'X-Session-Id': temp_user['sessionId'],
+                     'X-User-Id': temp_user['profileId']})
 
-        # Extract info from webpage (entirely optional)
-
-        webpage = self._download_webpage(url, current_id)
-
+    def _get_title(self, webpage):
         podcast_title = self._html_search_meta(
             ['og:title', 'title', 'twitter:title'],
             webpage, 'title', default=None)
-        podcast_title = re.sub(r' \| iHeartRadio$', '', podcast_title)
+        return re.sub(r' \| iHeartRadio$', '', podcast_title)
 
-        podcast_description = self._html_search_meta(
-            ['og:description', 'description', 'twitter:description'],
-            webpage, 'description', default=None)
-
-        if is_single_episode:
-            return self._real_extract_single(stream_info['items'][0],
-                                             episode_display_id, podcast_id,
-                                             podcast_title)
-        else:
-            entries = []
-            for item in stream_info['items']:
-                entries.append(self._real_extract_single(item,
-                                                         episode_display_id,
-                                                         podcast_id,
-                                                         podcast_title))
-            return {
-                'title': podcast_title,
-                'description': podcast_description,
-                'id': podcast_id,
-                'display_id': podcast_display_id,
-                '_type': 'playlist',
-                'entries': entries
-            }
-
-    def _real_extract_single(self, item_info, display_id, podcast_id, podcast_title):
+    def _extract_episode(self, item_info, display_id, podcast_id, podcast_title):
         content_info = item_info['content']
 
         thumbnails = [{
@@ -179,8 +134,37 @@ class IHeartRadioPodcastIE(IHeartRadioPodcastBaseIE):
         podcast_display_id = match.group('pod_title')
         podcast_id = match.group('pod_id')
 
-        return self._extract_episode_or_playlist(url, podcast_display_id,
-                                                 podcast_id)
+        # Don't load embed pages
+        url = url.replace('?embed=true', '')
+
+        temp_user = self._register_temp_user(podcast_id)
+
+        episodes = self._get_all_episodes(podcast_id, temp_user)
+        episode_ids = [episode['id'] for episode in episodes]
+
+        streams_info = self._get_streams_info(podcast_id, episode_ids,
+                                              temp_user, podcast_id)
+
+        # Extract info from webpage (entirely optional)
+
+        webpage = self._download_webpage(url, podcast_id)
+
+        podcast_description = self._html_search_meta(
+            ['og:description', 'description', 'twitter:description'],
+            webpage, 'description', default=None)
+        podcast_title = self._get_title(webpage)
+
+        entries = [self._extract_episode(item, None, podcast_id, podcast_title)
+                   for item in streams_info['items']]
+
+        return {
+            'title': podcast_title,
+            'description': podcast_description,
+            'id': podcast_id,
+            'display_id': podcast_display_id,
+            '_type': 'playlist',
+            'entries': entries
+        }
 
 
 class IHeartRadioPodcastEpisodeIE(IHeartRadioPodcastBaseIE):
@@ -207,12 +191,23 @@ class IHeartRadioPodcastEpisodeIE(IHeartRadioPodcastBaseIE):
     def _real_extract(self, url):
         match = re.match(self._VALID_URL, url)
 
-        podcast_display_id = match.group('pod_title')
+        # podcast_display_id = match.group('pod_title')
         podcast_id = match.group('pod_id')
-
         episode_display_id = match.group('title')
         episode_id = match.group('id')
 
-        return self._extract_episode_or_playlist(url, podcast_display_id,
-                                                 podcast_id, episode_display_id,
-                                                 episode_id)
+        # Don't load embed pages
+        url = url.replace('?embed=true', '')
+
+        temp_user = self._register_temp_user(episode_id)
+
+        streams_info = self._get_streams_info(podcast_id, [episode_id],
+                                              temp_user, episode_id)
+
+        # Extract info from webpage (entirely optional)
+        webpage = self._download_webpage(url, episode_id)
+        podcast_title = self._get_title(webpage)
+
+        return self._extract_episode(streams_info['items'][0],
+                                     episode_display_id, podcast_id,
+                                     podcast_title)
